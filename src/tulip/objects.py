@@ -1,0 +1,13 @@
+"""src/tulip/objects.py"""
+
+
+class TulipObject: ...
+
+
+class TulipFile: ...
+
+
+class TulipObjectMetadata: ...
+
+
+class TulipFileMetadata: ...
