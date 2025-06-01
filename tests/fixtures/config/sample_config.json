@@ -1,0 +1,4 @@
+{
+  "object_fs": "mem://",
+  "asset_fs": "mem://"
+}

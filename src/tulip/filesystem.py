@@ -50,7 +50,7 @@ class TulipFS(FS):
 
         try:
             tulip_object = TulipObject(path)
-            metadata = tulip_object.get_metadata()
+            metadata = tulip_object.generate_metadata()
             self.write_metadata(path, metadata)
         except Exception as e:
             try:
@@ -73,7 +73,7 @@ class TulipFS(FS):
             path_obj = Path(path.removeprefix("/"))
             for current_path in accumulate(path_obj.parts, lambda a, b: str(Path(a) / b)):
                 tulip_object = TulipObject(current_path)
-                metadata = tulip_object.get_metadata()
+                metadata = tulip_object.generate_metadata()
                 self.write_metadata(current_path, metadata)
                 created_paths.append(current_path)
         except Exception as e:
@@ -90,7 +90,7 @@ class TulipFS(FS):
 
         try:
             tulip_file = TulipFile(path, contents)
-            metadata = tulip_file.get_metadata()
+            metadata = tulip_file.generate_metadata()
             self.write_metadata(path, metadata)
         except Exception as e:
             try:
@@ -234,7 +234,7 @@ class TulipFileHandle:
             try:
                 contents = self._tulip_fs.objects_fs.readbytes(self._path)
                 tulip_file = TulipFile(self._path, contents)
-                metadata = tulip_file.get_metadata()
+                metadata = tulip_file.generate_metadata()
                 self._tulip_fs.write_metadata(self._path, metadata)
             except Exception as e:
                 try:

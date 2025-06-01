@@ -90,6 +90,66 @@ class TestTulipRepositoryOperations:
         local_repo.tulipfs.removetree(parent_dir)
         assert not local_repo.tulipfs.exists(parent_dir)
 
+    def test_create_file_and_delete_file(self, local_repo, sample_file_path, sample_binary_content):
+        """Test create_file and delete_file methods."""
+        # Create parent directory first
+        parent_dir = str(sample_file_path).rsplit("/", 1)[0]
+        local_repo.tulipfs.makedirs(parent_dir, recreate=True)
+
+        # Create a file with metadata
+        metadata = {"custom_key": "custom_value"}
+        tulip_file = local_repo.create_file(sample_file_path, sample_binary_content, metadata)
+
+        # Check file exists
+        assert local_repo.tulipfs.exists(sample_file_path)
+
+        # Check metadata was saved
+        file_metadata = tulip_file.metadata
+        assert file_metadata["custom_key"] == "custom_value"
+        assert file_metadata["type"] == "file"
+        assert file_metadata["path"] == sample_file_path
+        assert file_metadata["size"] == len(sample_binary_content)
+        assert file_metadata["digests"]["sha256"] is not None
+
+        # Delete the file
+        result = local_repo.delete_file(sample_file_path)
+        assert result is True
+        assert not local_repo.tulipfs.exists(sample_file_path)
+
+    def test_create_object_and_delete_object(self, local_repo, nested_dir_path):
+        """Test create_object and delete_object methods."""
+        # Create a directory object with metadata
+        metadata = {"custom_key": "custom_value"}
+        tulip_object = local_repo.create_object(nested_dir_path, metadata)
+
+        # Check directory exists
+        assert local_repo.tulipfs.exists(nested_dir_path)
+
+        # Check metadata was saved
+        object_metadata = tulip_object.metadata
+        assert object_metadata["custom_key"] == "custom_value"
+        assert object_metadata["type"] == "object"
+        assert object_metadata["path"] == nested_dir_path
+
+        # Create a file in the directory
+        file_path = f"{nested_dir_path}/test.txt"
+        local_repo.tulipfs.writetext(file_path, "test content")
+
+        # Delete the directory with recursive=True
+        result = local_repo.delete_object(nested_dir_path, recursive=True)
+        assert result is True
+        assert not local_repo.tulipfs.exists(nested_dir_path)
+
+        # Create another directory
+        another_dir = "test_dir"
+        tulip_object = local_repo.create_object(another_dir)
+        assert local_repo.tulipfs.exists(another_dir)
+
+        # Delete without recursive flag (should work for empty directories)
+        result = local_repo.delete_object(another_dir)
+        assert result is True
+        assert not local_repo.tulipfs.exists(another_dir)
+
 
 class TestTulipRepositoryIntegration:
     """Integration tests for TulipRepository."""

@@ -18,6 +18,6 @@ format:
 
 check: lint test
 
-text-dump:
+codebase-text-dump:
 	rm -f tulip-codebase.txt
 	uv run gitingest -o tulip-codebase.txt -e .venv -e uv.lock
