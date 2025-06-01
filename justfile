@@ -10,7 +10,14 @@ test:
 lint:
     uv run ruff check .
 
+lint-fix:
+    uv run ruff check --fix .
+
 format:
     uv run ruff format .
 
 check: lint test
+
+text-dump:
+	rm -f tulip-codebase.txt
+	uv run gitingest -o tulip-codebase.txt -e .venv -e uv.lock

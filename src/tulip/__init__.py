@@ -1,19 +1,15 @@
 """src/tulip/__init__.py"""
 
-from .filesystem import TulipFilesystem
+from .filesystem import TulipFS
 from .objects import (
-    TulipObject,
     TulipFile,
-    TulipObjectMetadata,
-    TulipFileMetadata,
+    TulipObject,
 )
 from .repository import TulipRepository
 
 __all__ = [
-    "TulipFilesystem",
-    "TulipRepository",
-    "TulipObject",
+    "TulipFS",
     "TulipFile",
-    "TulipObjectMetadata",
-    "TulipFileMetadata",
+    "TulipObject",
+    "TulipRepository",
 ]
