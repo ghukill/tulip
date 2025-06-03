@@ -43,12 +43,12 @@ class TulipEntity:
     def delete(self): ...
 
     def read_metadata(self):
-        return json.loads(self.repository.tulipfs.assets_fs.readbytes(self.metadata_path))
+        return json.loads(self.repository.tulipfs.assets_fs.cat(self.metadata_path))
 
     def update_metadata(self, metadata_mixins: dict):
         metadata = self.read_metadata()
         metadata.update(metadata_mixins)
-        self.repository.tulipfs.assets_fs.writebytes(
+        self.repository.tulipfs.assets_fs.pipe_file(
             self.metadata_path,
             json.dumps(metadata).encode(),
         )
@@ -111,7 +111,7 @@ class TulipFile(TulipEntity):
         return {"sha256": None}
 
     def save(self):
-        tulipfs_result = self.repository.tulipfs.writebytes(self.path, self.data)
+        tulipfs_result = self.repository.tulipfs.pipe_file(self.path, self.data)
         if self.metadata_mixins is not None:
             self.update_metadata(self.metadata_mixins)
         return tulipfs_result

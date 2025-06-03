@@ -1,52 +1,73 @@
 """src/tulip/filesystem.py"""
 
-import json
 from itertools import accumulate
+import json
 from pathlib import Path
 from typing import BinaryIO
 
-from fs import open_fs
-from fs.base import FS
+import fsspec
+from fsspec.implementations.dirfs import DirFileSystem
+from fsspec.spec import AbstractFileSystem
 
 from .objects import TulipFile, TulipObject
 
 
-class TulipFS(FS):
-    """A PyFilesystem compliant filesystem built on top of dual PyFilesystem instances.
+class TulipFS(AbstractFileSystem):
+    protocol = "tulip"
+    sep = "/"
+    root_marker = "/"
 
-    This filesystem ensures that all operations on objects are mirrored with
-    appropriate metadata operations in the assets filesystem.
-    """
+    def __init__(
+        self,
+        objects_fs: str | AbstractFileSystem,
+        assets_fs: str | AbstractFileSystem,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
 
-    def __init__(self, objects_fs: str | FS, assets_fs: str | FS):
-        super().__init__()
-        self.objects_fs = self._load_fs(objects_fs)
-        self.assets_fs = self._load_fs(assets_fs)
+        if isinstance(objects_fs, str):
+            self.objects_fs = fsspec.filesystem(
+                objects_fs.split("://")[0], **self._parse_fs_url(objects_fs)
+            )
+        else:
+            self.objects_fs = objects_fs
+        if isinstance(assets_fs, str):
+            self.assets_fs = fsspec.filesystem(
+                assets_fs.split("://")[0], **self._parse_fs_url(assets_fs)
+            )
+        else:
+            self.assets_fs = assets_fs
 
-    def _load_fs(self, _fs: str | FS) -> FS:
-        match _fs:
-            case str():
-                return open_fs(_fs)
-            case FS():
-                return _fs
-            case _:
-                raise ValueError("A PyFilesystem instance or URI required")
+        # TODO: fix this wrap
+        self.objects_fs = DirFileSystem("/tmp/tulip/objects", self.objects_fs)
+        self.assets_fs = DirFileSystem("/tmp/tulip/assets", self.assets_fs)
+
+    def _parse_fs_url(self, url: str) -> dict:
+        """Parse filesystem URL into protocol and options."""
+        protocol, path = url.split("://", 1)
+        print(path)
+        if protocol == "file":
+            return {"path": path}
+        # TODO: support more methods here
+        else:
+            raise ValueError(f"Filesystem protocol not supported: '{protocol}'")
 
     def write_metadata(self, path: str, metadata: dict) -> bool:
         """Write TulipObject or TulipFile metadata to assets filesystem."""
-        self.assets_fs.makedirs(path, recreate=True)
-        self.assets_fs.writebytes(
-            str(Path(path) / "tulip.json"),
-            json.dumps(metadata).encode(),
-        )
+        self.assets_fs.makedirs(path, exist_ok=True)
+        metadata_path = str(Path(path) / "tulip.json")
+        with self.assets_fs.open(metadata_path, "wb") as f:
+            f.write(json.dumps(metadata).encode())
         return True
 
     # -----------------------------------------------------------------------
     # Write/Update Metadata Methods
     # -----------------------------------------------------------------------
 
-    def makedir(self, path, permissions=None, recreate=False):
-        result = self.objects_fs.makedir(path, permissions=permissions, recreate=recreate)
+    def makedir(self, path, create_parents=False, **kwargs):
+        """Create a single directory and generate metadata."""
+        # Create directory in objects filesystem
+        self.objects_fs.makedirs(path, exist_ok=False)
 
         try:
             tulip_object = TulipObject(path)
@@ -54,19 +75,17 @@ class TulipFS(FS):
             self.write_metadata(path, metadata)
         except Exception as e:
             try:
-                self.objects_fs.removedir(path)
+                self.objects_fs.rmdir(path)
             except Exception:
                 pass
             raise e
 
-        return result
+        return True
 
-    def makedirs(self, path, permissions=None, recreate=False):
-        result = self.objects_fs.makedirs(
-            str(path),
-            permissions=permissions,
-            recreate=True,
-        )
+    def makedirs(self, path, exist_ok=False):
+        """Create directories recursively and generate metadata for each."""
+        # Create all directories in objects filesystem
+        self.objects_fs.makedirs(path, exist_ok=exist_ok)
 
         created_paths = []
         try:
@@ -78,31 +97,34 @@ class TulipFS(FS):
                 created_paths.append(current_path)
         except Exception as e:
             try:
-                self.objects_fs.removetree(path)
+                self.objects_fs.rm(path, recursive=True)
             except Exception:
                 pass
             raise e
 
-        return result
+        return True
 
-    def writebytes(self, path, contents):
-        result = self.objects_fs.writebytes(path, contents)
+    def pipe_file(self, path, value, mode="overwrite", **kwargs):
+        """Write bytes to a file and generate metadata."""
+        with self.objects_fs.open(path, "wb") as f:
+            f.write(value)
 
         try:
-            tulip_file = TulipFile(path, contents)
+            tulip_file = TulipFile(path, value)
             metadata = tulip_file.generate_metadata()
             self.write_metadata(path, metadata)
         except Exception as e:
             try:
-                self.objects_fs.remove(path)
+                self.objects_fs.rm(path)
             except Exception:
                 pass
             raise e
 
-        return result
+        return True
 
-    def openbin(self, path, mode="r", buffering=-1, **options):
-        file_handle = self.objects_fs.openbin(path, mode, buffering, **options)
+    def _open(self, path, mode="rb", **kwargs):
+        """Open a file, wrapping write modes to generate metadata on close."""
+        file_handle = self.objects_fs.open(path, mode, **kwargs)
 
         if any(m in mode for m in ["w", "a", "+"]):
             return TulipFileHandle(file_handle, self, path, mode)
@@ -113,101 +135,116 @@ class TulipFS(FS):
     # Delete Metadata Methods
     # -----------------------------------------------------------------------
 
-    def removedir(self, path):
+    def rmdir(self, path):
+        """Remove a directory and its metadata."""
         metadata_existed = self.assets_fs.exists(path)
 
         try:
-            self.assets_fs.removetree(path)
+            self.assets_fs.rm(path, recursive=True)
         except Exception as e:
             if metadata_existed:
                 raise e
 
-        result = self.objects_fs.removedir(path)
+        result = self.objects_fs.rmdir(path)
         return result
 
-    def removetree(self, dir_path: str) -> None:
-        metadata_existed = self.assets_fs.exists(dir_path)
-
-        try:
-            self.assets_fs.removetree(dir_path)
-        except Exception as e:
-            if metadata_existed:
-                raise e
-
-        result = self.objects_fs.removetree(dir_path)
-        return result
-
-    def remove(self, path):
+    def rm(self, path, recursive=False, maxdepth=None):
+        """Remove file(s) or directory and associated metadata."""
         metadata_existed = self.assets_fs.exists(path)
 
         try:
-            self.assets_fs.removetree(path)
+            self.assets_fs.rm(
+                path, recursive=True
+            )  # Always recursive for metadata cleanup
         except Exception as e:
             if metadata_existed:
                 raise e
 
-        result = self.objects_fs.remove(path)
+        result = self.objects_fs.rm(path, recursive=recursive, maxdepth=maxdepth)
         return result
 
     # ------------------------------------------------------------------------
     # Delegated Methods
     # ------------------------------------------------------------------------
 
-    def writetext(
-        self,
-        path: str,
-        contents: str,
-        encoding: str = "utf-8",
-        errors=None,
-        newline: str = "",
-    ):
-        encoded_contents = contents.encode(encoding)
-        return self.writebytes(path, encoded_contents)
+    def cat_file(self, path, **kwargs):
+        """Read entire file as bytes."""
+        return self.objects_fs.cat_file(path, **kwargs)
 
-    def readbytes(self, path):
-        return self.objects_fs.readbytes(path)
+    def cat(self, path, **kwargs):
+        """Read file(s) as bytes."""
+        return self.objects_fs.cat(path, **kwargs)
 
-    def readtext(
-        self,
-        path,
-        encoding=None,
-        errors=None,
-        newline="",
-    ):
-        return self.objects_fs.readtext(
-            path,
-            encoding=encoding,
-            errors=errors,
-            newline=newline,
-        )
+    def exists(self, path, **kwargs):
+        """Check if path exists."""
+        return self.objects_fs.exists(path, **kwargs)
 
-    def exists(self, path):
-        return self.objects_fs.exists(path)
-
-    def setinfo(self, path, info):
-        return self.objects_fs.setinfo(path, info)
-
-    def getinfo(self, path, namespaces=None):
-        return self.objects_fs.getinfo(path, namespaces)
+    def info(self, path, **kwargs):
+        """Get file/directory info."""
+        return self.objects_fs.info(path, **kwargs)
 
     def isfile(self, path):
+        """Check if path is a file."""
         return self.objects_fs.isfile(path)
 
     def isdir(self, path):
+        """Check if path is a directory."""
         return self.objects_fs.isdir(path)
 
-    def listdir(self, path):
-        return self.objects_fs.listdir(path)
+    def ls(self, path="", detail=True, **kwargs):
+        """List directory contents."""
+        return self.objects_fs.ls(path, detail=detail, **kwargs)
+
+    def listdir(self, path=""):
+        """List directory contents (names only)."""
+        return [
+            item["name"] if isinstance(item, dict) else item
+            for item in self.ls(path, detail=False)
+        ]
+
+    def glob(self, path, **kwargs):
+        """Find files by glob pattern."""
+        return self.objects_fs.glob(path, **kwargs)
+
+    def find(self, path, **kwargs):
+        """Find files recursively."""
+        return self.objects_fs.find(path, **kwargs)
+
+    def size(self, path):
+        """Get file size."""
+        return self.objects_fs.size(path)
+
+    def checksum(self, path):
+        """Get file checksum."""
+        return self.objects_fs.checksum(path)
+
+    def copy(self, path1, path2, **kwargs):
+        """Copy file and metadata."""
+        # Copy in objects filesystem
+        result = self.objects_fs.copy(path1, path2, **kwargs)
+
+        # Copy metadata if it exists
+        if self.assets_fs.exists(path1):
+            self.assets_fs.copy(path1, path2, recursive=True, **kwargs)
+
+        return result
+
+    def move(self, path1, path2, **kwargs):
+        """Move file and metadata."""
+        # Move in objects filesystem
+        result = self.objects_fs.move(path1, path2, **kwargs)
+
+        # Move metadata if it exists
+        if self.assets_fs.exists(path1):
+            self.assets_fs.move(path1, path2, **kwargs)
+
+        return result
 
 
 class TulipFileHandle:
-    """Wrapper around file handle that generates metadata on close.
+    """Wrapper around file handle that generates metadata on close."""
 
-    Example use: TulipFS.openbin().  This returns a file like object, which on creation or
-    update, we'll want to update the associated assets metadata.
-    """
-
-    def __init__(self, file_handle: BinaryIO, tulip_fs: "TulipFS", path: str, mode: str):
+    def __init__(self, file_handle: BinaryIO, tulip_fs: TulipFS, path: str, mode: str):
         self._handle = file_handle
         self._tulip_fs = tulip_fs
         self._path = path
@@ -232,13 +269,13 @@ class TulipFileHandle:
     def _generate_metadata(self):
         if self._tulip_fs.objects_fs.exists(self._path):
             try:
-                contents = self._tulip_fs.objects_fs.readbytes(self._path)
+                contents = self._tulip_fs.objects_fs.cat_file(self._path)
                 tulip_file = TulipFile(self._path, contents)
                 metadata = tulip_file.generate_metadata()
                 self._tulip_fs.write_metadata(self._path, metadata)
             except Exception as e:
                 try:
-                    self._tulip_fs.objects_fs.remove(self._path)
+                    self._tulip_fs.objects_fs.rm(self._path)
                 except Exception:
                     pass
                 raise e
