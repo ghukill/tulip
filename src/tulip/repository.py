@@ -1,6 +1,5 @@
 """src/tulip/repository.py"""
 
-import json
 from pathlib import Path
 
 import fsspec

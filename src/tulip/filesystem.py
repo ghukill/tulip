@@ -36,17 +36,6 @@ class TulipFS(AbstractFileSystem):
         self.objects_fs = objects_fs
         self.assets_fs = assets_fs
 
-    def _get_temporary_local_filesystem(self, suffix: str):
-        fs = DirFileSystem(
-            str(Path("/tmp/tulip") / suffix),
-            fsspec.filesystem("file"),
-        )
-
-        if not fs.exists("/"):
-            fs.makedirs("/")
-
-        return fs
-
     def write_metadata(self, path: str, metadata: dict) -> bool:
         """Write TulipObject or TulipFile metadata to assets filesystem."""
         self.assets_fs.makedirs(path, exist_ok=True)
@@ -190,7 +179,7 @@ class TulipFS(AbstractFileSystem):
         """List directory contents."""
         return self.objects_fs.ls(path, detail=detail, **kwargs)
 
-    def listdir(self, path=""):
+    def listdir(self, path, detail=True, **kwargs):
         """List directory contents (names only)."""
         return [
             item["name"] if isinstance(item, dict) else item
