@@ -8,8 +8,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
-from fs.path import basename
-
 if TYPE_CHECKING:
     from .repository import TulipRepository
 
@@ -59,7 +57,7 @@ class TulipObject(TulipEntity):
         return {
             "type": "object",
             "path": self.path,
-            "name": basename(self.path),
+            "name": Path(self.path).name,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -72,9 +70,9 @@ class TulipObject(TulipEntity):
 
     def delete(self, recursive=True):
         if recursive:
-            return self.repository.tulipfs.removetree(self.path)
+            return self.repository.tulipfs.rm(self.path, recursive=True)
         else:
-            return self.repository.tulipfs.removedir(self.path)
+            return self.repository.tulipfs.rmdir(self.path)
 
 
 class TulipFile(TulipEntity):
@@ -92,7 +90,7 @@ class TulipFile(TulipEntity):
         return {
             "type": "file",
             "path": self.path,
-            "name": basename(self.path),
+            "name": Path(self.path).name,
             "size": self._get_file_size(),
             "digests": self._get_digests(),
             "created_at": datetime.now(timezone.utc).isoformat(),
@@ -117,4 +115,4 @@ class TulipFile(TulipEntity):
         return tulipfs_result
 
     def delete(self) -> dict:
-        return self.repository.tulipfs.remove(self.path)
+        return self.repository.tulipfs.rm(self.path)

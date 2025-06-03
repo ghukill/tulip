@@ -19,38 +19,33 @@ class TulipFS(AbstractFileSystem):
 
     def __init__(
         self,
-        objects_fs: str | AbstractFileSystem,
-        assets_fs: str | AbstractFileSystem,
         **kwargs,
     ):
+        """
+
+        Args:
+            kwargs:
+                - objects_fs: AbstractFileSystem
+                - assets_fs: AbstractFileSystem
+        """
+        objects_fs = kwargs.pop("objects_fs", None)
+        assets_fs = kwargs.pop("assets_fs", None)
+
         super().__init__(**kwargs)
 
-        if isinstance(objects_fs, str):
-            self.objects_fs = fsspec.filesystem(
-                objects_fs.split("://")[0], **self._parse_fs_url(objects_fs)
-            )
-        else:
-            self.objects_fs = objects_fs
-        if isinstance(assets_fs, str):
-            self.assets_fs = fsspec.filesystem(
-                assets_fs.split("://")[0], **self._parse_fs_url(assets_fs)
-            )
-        else:
-            self.assets_fs = assets_fs
+        self.objects_fs = objects_fs
+        self.assets_fs = assets_fs
 
-        # TODO: fix this wrap
-        self.objects_fs = DirFileSystem("/tmp/tulip/objects", self.objects_fs)
-        self.assets_fs = DirFileSystem("/tmp/tulip/assets", self.assets_fs)
+    def _get_temporary_local_filesystem(self, suffix: str):
+        fs = DirFileSystem(
+            str(Path("/tmp/tulip") / suffix),
+            fsspec.filesystem("file"),
+        )
 
-    def _parse_fs_url(self, url: str) -> dict:
-        """Parse filesystem URL into protocol and options."""
-        protocol, path = url.split("://", 1)
-        print(path)
-        if protocol == "file":
-            return {"path": path}
-        # TODO: support more methods here
-        else:
-            raise ValueError(f"Filesystem protocol not supported: '{protocol}'")
+        if not fs.exists("/"):
+            fs.makedirs("/")
+
+        return fs
 
     def write_metadata(self, path: str, metadata: dict) -> bool:
         """Write TulipObject or TulipFile metadata to assets filesystem."""

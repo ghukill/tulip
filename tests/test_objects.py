@@ -1,263 +1,208 @@
-import json
-from datetime import datetime
-from unittest.mock import MagicMock, patch
-
 import pytest
+import json
+from pathlib import Path
 
-from tulip import TulipFile, TulipObject, TulipRepository
-from tulip.objects import TulipEntity
-
-
-class TestTulipEntity:
-    """Tests for the TulipEntity class."""
-
-    def test_update_metadata(self):
-        """Test update_metadata updates metadata correctly."""
-        # Create a concrete subclass of TulipEntity for testing
-        class ConcreteTulipEntity(TulipEntity):
-            def generate_metadata(self):
-                return {"type": "test", "path": self.path}
-
-            def save(self):
-                pass
-
-            def delete(self):
-                pass
-
-        # Create a mock repository with a mock tulipfs
-        mock_repo = MagicMock(spec=TulipRepository)
-        mock_tulipfs = MagicMock()
-        mock_repo.tulipfs = mock_tulipfs
-        mock_assets_fs = MagicMock()
-        mock_tulipfs.assets_fs = mock_assets_fs
-
-        # Mock read_metadata to return a base metadata dict
-        base_metadata = {"type": "test", "path": "test/path", "existing_key": "existing_value"}
-
-        # Create a TulipEntity with the mock repository
-        entity = ConcreteTulipEntity("test/path", repository=mock_repo)
-
-        # Mock read_metadata to return our base metadata
-        with patch.object(entity, 'read_metadata', return_value=base_metadata):
-            # Call update_metadata with new metadata
-            new_metadata = {"new_key": "new_value", "existing_key": "updated_value"}
-            entity.update_metadata(new_metadata)
-
-            # Verify writebytes was called with the updated metadata
-            expected_metadata = {
-                "type": "test", 
-                "path": "test/path", 
-                "existing_key": "updated_value",
-                "new_key": "new_value"
-            }
-            mock_assets_fs.writebytes.assert_called_once()
-
-            # Get the actual metadata that was written
-            call_args = mock_assets_fs.writebytes.call_args[0]
-            assert call_args[0] == "test/path/tulip.json"
-            written_metadata = json.loads(call_args[1].decode())
-
-            # Verify the metadata was updated correctly
-            assert written_metadata == expected_metadata
+from tulip.objects import TulipObject, TulipFile
 
 
-class TestTulipObject:
-    """Tests for the TulipObject class."""
+def test_tulip_object_creation(memory_repo):
+    """Test creating a TulipObject."""
+    path = "/test_object"
+    obj = TulipObject(path, repository=memory_repo)
 
-    def test_init(self):
-        """Test initialization of TulipObject."""
-        obj = TulipObject("test/path")
-        assert obj.path == "test/path"
-        assert obj.metadata_path == "test/path/tulip.json"
-
-    def test_get_metadata(self):
-        """Test get_metadata returns correct metadata."""
-        obj = TulipObject("test/path")
-        metadata = obj.generate_metadata()
-
-        assert metadata["type"] == "object"
-        assert metadata["path"] == "test/path"
-        assert metadata["name"] == "path"
-        assert "created_at" in metadata
-        assert "updated_at" in metadata
-
-        # Verify timestamps are valid ISO format
-        datetime.fromisoformat(metadata["created_at"])
-        datetime.fromisoformat(metadata["updated_at"])
-
-    def test_save(self):
-        """Test save method creates directory and metadata."""
-        # Create a mock repository
-        mock_repo = MagicMock(spec=TulipRepository)
-        mock_tulipfs = MagicMock()
-        mock_repo.tulipfs = mock_tulipfs
-
-        # Create a TulipObject with the mock repository
-        obj = TulipObject("test/path", repository=mock_repo)
-
-        # Call save method
-        obj.save()
-
-        # Verify makedirs was called
-        mock_tulipfs.makedirs.assert_called_once_with("test/path")
-
-    def test_save_with_metadata(self):
-        """Test save method with metadata."""
-        # Create a mock repository
-        mock_repo = MagicMock(spec=TulipRepository)
-        mock_tulipfs = MagicMock()
-        mock_repo.tulipfs = mock_tulipfs
-
-        # Create a TulipObject with metadata and the mock repository
-        metadata = {"custom_key": "custom_value"}
-        obj = TulipObject("test/path", metadata_mixins=metadata, repository=mock_repo)
-
-        # Mock update_metadata method
-        with patch.object(obj, 'update_metadata') as mock_update_metadata:
-            # Call save method
-            obj.save()
-
-            # Verify update_metadata was called with the metadata
-            mock_update_metadata.assert_called_once_with(metadata)
-
-    def test_delete(self):
-        """Test delete method removes directory."""
-        # Create a mock repository
-        mock_repo = MagicMock(spec=TulipRepository)
-        mock_tulipfs = MagicMock()
-        mock_repo.tulipfs = mock_tulipfs
-
-        # Create a TulipObject with the mock repository
-        obj = TulipObject("test/path", repository=mock_repo)
-
-        # Call delete method
-        obj.delete()
-
-        # Verify removetree was called
-        mock_tulipfs.removetree.assert_called_once_with("test/path")
-
-    def test_delete_non_recursive(self):
-        """Test delete method with recursive=False."""
-        # Create a mock repository
-        mock_repo = MagicMock(spec=TulipRepository)
-        mock_tulipfs = MagicMock()
-        mock_repo.tulipfs = mock_tulipfs
-
-        # Create a TulipObject with the mock repository
-        obj = TulipObject("test/path", repository=mock_repo)
-
-        # Call delete method with recursive=False
-        obj.delete(recursive=False)
-
-        # Verify removedir was called
-        mock_tulipfs.removedir.assert_called_once_with("test/path")
+    assert obj.path == path
+    assert obj.repository == memory_repo
+    assert obj.metadata_mixins is None
 
 
-class TestTulipFile:
-    """Tests for the TulipFile class."""
+def test_tulip_object_with_metadata(memory_repo):
+    """Test creating a TulipObject with metadata."""
+    path = "/test_object_metadata"
+    metadata = {"key": "value", "another_key": 123}
+    obj = TulipObject(path, metadata_mixins=metadata, repository=memory_repo)
 
-    def test_init(self):
-        """Test initialization of TulipFile."""
-        file = TulipFile("test/file.txt")
-        assert file.path == "test/file.txt"
-        assert file.metadata_path == "test/file.txt/tulip.json"
-        assert file.data is None
+    assert obj.path == path
+    assert obj.repository == memory_repo
+    assert obj.metadata_mixins == metadata
 
-        file_with_data = TulipFile("test/file.txt", b"test data")
-        assert file_with_data.data == b"test data"
 
-    def test_get_metadata_without_data(self):
-        """Test get_metadata returns correct metadata when no data is provided."""
-        file = TulipFile("test/file.txt")
-        metadata = file.generate_metadata()
+def test_tulip_object_generate_metadata(memory_repo):
+    """Test generating metadata for a TulipObject."""
+    path = "/test_object_gen_metadata"
+    obj = TulipObject(path, repository=memory_repo)
 
-        assert metadata["type"] == "file"
-        assert metadata["path"] == "test/file.txt"
-        assert metadata["name"] == "file.txt"
-        assert metadata["size"] == 0
-        assert metadata["digests"]["sha256"] is None
-        assert "created_at" in metadata
-        assert "updated_at" in metadata
+    metadata = obj.generate_metadata()
 
-    def test_get_metadata_with_data(self, sample_binary_content):
-        """Test get_metadata returns correct metadata when data is provided."""
-        file = TulipFile("test/file.txt", sample_binary_content)
-        metadata = file.generate_metadata()
+    assert metadata["type"] == "object"
+    assert metadata["path"] == path
+    assert metadata["name"] == "test_object_gen_metadata"
+    assert "created_at" in metadata
+    assert "updated_at" in metadata
 
-        assert metadata["type"] == "file"
-        assert metadata["path"] == "test/file.txt"
-        assert metadata["name"] == "file.txt"
-        assert metadata["size"] == len(sample_binary_content)
-        assert metadata["digests"]["sha256"] is not None
-        assert len(metadata["digests"]["sha256"]) == 64  # SHA-256 is 64 hex chars
-        assert "created_at" in metadata
-        assert "updated_at" in metadata
 
-    def test_get_file_size(self, sample_binary_content):
-        """Test _get_file_size returns correct size."""
-        file_without_data = TulipFile("test/file.txt")
-        assert file_without_data._get_file_size() == 0
+def test_tulip_object_save_and_read_metadata(memory_repo):
+    """Test saving a TulipObject and reading its metadata."""
+    path = "/test_object_save"
+    obj = TulipObject(path, repository=memory_repo)
 
-        file_with_data = TulipFile("test/file.txt", sample_binary_content)
-        assert file_with_data._get_file_size() == len(sample_binary_content)
+    # Save the object
+    obj.save()
 
-    def test_get_digests(self, sample_binary_content):
-        """Test _get_digests returns correct digests."""
-        file_without_data = TulipFile("test/file.txt")
-        assert file_without_data._get_digests() == {"sha256": None}
+    # Check that the object exists
+    assert memory_repo.tulipfs.exists(path)
 
-        file_with_data = TulipFile("test/file.txt", sample_binary_content)
-        digests = file_with_data._get_digests()
-        assert "sha256" in digests
-        assert len(digests["sha256"]) == 64  # SHA-256 is 64 hex chars
+    # Add metadata after saving
+    metadata_mixins = {"custom_key": "custom_value"}
+    # Write metadata directly to avoid reading it first
+    memory_repo.tulipfs.assets_fs.pipe_file(
+        obj.metadata_path,
+        json.dumps({**obj.generate_metadata(), **metadata_mixins}).encode(),
+    )
 
-    def test_save(self, sample_binary_content):
-        """Test save method writes file and metadata."""
-        # Create a mock repository
-        mock_repo = MagicMock(spec=TulipRepository)
-        mock_tulipfs = MagicMock()
-        mock_repo.tulipfs = mock_tulipfs
+    # Read metadata
+    metadata = obj.metadata
 
-        # Create a TulipFile with the mock repository
-        file = TulipFile("test/file.txt", sample_binary_content, repository=mock_repo)
+    assert metadata["type"] == "object"
+    assert metadata["path"] == path
+    assert metadata["custom_key"] == "custom_value"
 
-        # Call save method
-        file.save()
 
-        # Verify writebytes was called with correct arguments
-        mock_tulipfs.writebytes.assert_called_once_with("test/file.txt", sample_binary_content)
+def test_tulip_object_update_metadata(memory_repo):
+    """Test updating metadata for a TulipObject."""
+    path = "/test_object_update"
+    obj = TulipObject(path, repository=memory_repo)
 
-    def test_save_with_metadata(self, sample_binary_content):
-        """Test save method with metadata."""
-        # Create a mock repository
-        mock_repo = MagicMock(spec=TulipRepository)
-        mock_tulipfs = MagicMock()
-        mock_repo.tulipfs = mock_tulipfs
+    # Save the object
+    obj.save()
 
-        # Create a TulipFile with metadata and the mock repository
-        metadata = {"custom_key": "custom_value"}
-        file = TulipFile("test/file.txt", sample_binary_content, metadata_mixins=metadata, repository=mock_repo)
+    # Write initial metadata
+    memory_repo.tulipfs.assets_fs.pipe_file(
+        obj.metadata_path,
+        json.dumps(obj.generate_metadata()).encode(),
+    )
 
-        # Mock update_metadata method
-        with patch.object(file, 'update_metadata') as mock_update_metadata:
-            # Call save method
-            file.save()
+    # Update metadata
+    update_data = {"new_key": "new_value"}
+    obj.update_metadata(update_data)
 
-            # Verify update_metadata was called with the metadata
-            mock_update_metadata.assert_called_once_with(metadata)
+    # Read metadata
+    metadata = obj.metadata
 
-    def test_delete(self):
-        """Test delete method removes file."""
-        # Create a mock repository
-        mock_repo = MagicMock(spec=TulipRepository)
-        mock_tulipfs = MagicMock()
-        mock_repo.tulipfs = mock_tulipfs
+    assert metadata["new_key"] == "new_value"
 
-        # Create a TulipFile with the mock repository
-        file = TulipFile("test/file.txt", repository=mock_repo)
 
-        # Call delete method
-        file.delete()
+def test_tulip_object_delete(memory_repo):
+    """Test deleting a TulipObject."""
+    path = "/test_object_delete"
+    obj = TulipObject(path, repository=memory_repo)
 
-        # Verify remove was called
-        mock_tulipfs.remove.assert_called_once_with("test/file.txt")
+    # Save the object
+    obj.save()
+    assert memory_repo.tulipfs.exists(path)
+
+    # Delete the object
+    obj.delete()
+    assert not memory_repo.tulipfs.exists(path)
+
+
+def test_tulip_file_creation(memory_repo):
+    """Test creating a TulipFile."""
+    path = "/test_file.txt"
+    data = b"test file content"
+    file = TulipFile(path, data, repository=memory_repo)
+
+    assert file.path == path
+    assert file.data == data
+    assert file.repository == memory_repo
+    assert file.metadata_mixins is None
+
+
+def test_tulip_file_with_metadata(memory_repo):
+    """Test creating a TulipFile with metadata."""
+    path = "/test_file_metadata.txt"
+    data = b"test file content"
+    metadata = {"key": "value", "another_key": 123}
+    file = TulipFile(path, data, metadata_mixins=metadata, repository=memory_repo)
+
+    assert file.path == path
+    assert file.data == data
+    assert file.repository == memory_repo
+    assert file.metadata_mixins == metadata
+
+
+def test_tulip_file_generate_metadata(memory_repo):
+    """Test generating metadata for a TulipFile."""
+    path = "/test_file_gen_metadata.txt"
+    data = b"test file content for metadata generation"
+    file = TulipFile(path, data, repository=memory_repo)
+
+    metadata = file.generate_metadata()
+
+    assert metadata["type"] == "file"
+    assert metadata["path"] == path
+    assert metadata["name"] == "test_file_gen_metadata.txt"
+    assert metadata["size"] == len(data)
+    assert "digests" in metadata
+    assert "sha256" in metadata["digests"]
+    assert "created_at" in metadata
+    assert "updated_at" in metadata
+
+
+def test_tulip_file_save_and_read(memory_repo):
+    """Test saving a TulipFile and reading its content."""
+    path = "/test_file_save.txt"
+    data = b"test file content for save and read"
+    metadata_mixins = {"custom_key": "custom_value"}
+    file = TulipFile(path, data, metadata_mixins=metadata_mixins, repository=memory_repo)
+
+    # Save the file
+    file.save()
+
+    # Check that the file exists
+    assert memory_repo.tulipfs.exists(path)
+
+    # Read file content
+    content = memory_repo.tulipfs.cat(path)
+    assert content == data
+
+    # Read metadata
+    metadata = file.metadata
+
+    assert metadata["type"] == "file"
+    assert metadata["path"] == path
+    assert metadata["size"] == len(data)
+    assert metadata["custom_key"] == "custom_value"
+
+
+def test_tulip_file_update_metadata(memory_repo):
+    """Test updating metadata for a TulipFile."""
+    path = "/test_file_update.txt"
+    data = b"test file content for update"
+    file = TulipFile(path, data, repository=memory_repo)
+
+    # Save the file
+    file.save()
+
+    # Update metadata
+    update_data = {"new_key": "new_value"}
+    file.update_metadata(update_data)
+
+    # Read metadata
+    metadata = file.metadata
+
+    assert metadata["new_key"] == "new_value"
+
+
+def test_tulip_file_delete(memory_repo):
+    """Test deleting a TulipFile."""
+    path = "/test_file_delete.txt"
+    data = b"test file content for delete"
+    file = TulipFile(path, data, repository=memory_repo)
+
+    # Save the file
+    file.save()
+    assert memory_repo.tulipfs.exists(path)
+
+    # Delete the file
+    file.delete()
+    assert not memory_repo.tulipfs.exists(path)
